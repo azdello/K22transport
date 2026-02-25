@@ -1,11 +1,61 @@
 "use client";
 
-import { useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 export default function EnquiryClient() {
   const params = useSearchParams();
+  const router = useRouter();
+
   const prefillType = useMemo(() => params.get("type") ?? "", [params]);
+
+  const [status, setStatus] = useState<"idle" | "sending" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState<string>("");
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setStatus("sending");
+    setErrorMsg("");
+
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
+    const payload = {
+      name: String(formData.get("name") || "").trim(),
+      phone: String(formData.get("phone") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
+      vehicleType: String(formData.get("vehicleType") || "").trim(),
+      startDate: String(formData.get("startDate") || "").trim(),
+      endDate: String(formData.get("endDate") || "").trim(),
+      notes: String(formData.get("notes") || "").trim(),
+    };
+
+    try {
+      const res = await fetch("/api/enquiry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.ok) {
+        setStatus("error");
+        setErrorMsg(data?.error || "Something went wrong. Please try again.");
+        return;
+      }
+
+      // Redirect to confirmation page (keep the type in URL for a nice message)
+      const type = encodeURIComponent(payload.vehicleType || prefillType || "");
+      router.push(`/enquiry/confirmation${type ? `?type=${type}` : ""}`);
+    } catch {
+      setStatus("error");
+      setErrorMsg("Network error. Please try again.");
+    } finally {
+      // keep "sending" until redirect happens; if error it'll show error state
+      if (status !== "error") setStatus("idle");
+    }
+  }
 
   return (
     <div className="space-y-10">
@@ -23,7 +73,7 @@ export default function EnquiryClient() {
         <div className="lg:col-span-3">
           {/* White card stays, but inputs are clearly styled */}
           <div className="rounded-3xl border border-white/10 bg-white p-6 sm:p-8 text-black">
-            <form className="space-y-5">
+            <form className="space-y-5" onSubmit={onSubmit}>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Full Name">
                   <input
@@ -105,10 +155,15 @@ export default function EnquiryClient() {
 
               <button
                 type="submit"
-                className="w-full rounded-xl bg-yellow-400 px-5 py-3 text-sm font-semibold text-black hover:bg-yellow-300 transition"
+                disabled={status === "sending"}
+                className="w-full rounded-xl bg-yellow-400 px-5 py-3 text-sm font-semibold text-black hover:bg-yellow-300 transition disabled:opacity-60"
               >
-                Submit Enquiry
+                {status === "sending" ? "Submitting…" : "Submit Enquiry"}
               </button>
+
+              {status === "error" ? (
+                <p className="text-sm font-semibold text-red-700">{errorMsg}</p>
+              ) : null}
 
               <p className="text-xs text-black/60">
                 {/* Keep your existing note text */}
